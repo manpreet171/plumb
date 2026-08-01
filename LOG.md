@@ -5,6 +5,28 @@ Newest first.
 
 ---
 
+## 2026-08-01 — published, listed, launch drafted
+
+- **Public at [github.com/manpreet171/plumb](https://github.com/manpreet171/plumb)**,
+  six topics, CI green on the first run. Verified the README's own install line by
+  installing from GitHub into a clean dir and running the linked binary — the
+  `plumb` bin links and produces the documented output.
+- **Listed on [singhlabs.dev/plumb](https://singhlabs.dev/plumb/)** in bucket
+  01 · CLI, with the verb badge **"after it's done"** — which completes the
+  shelf's timeline (before it's written · before it's merged · while it's
+  running · after it's done). Every block on that page was captured by running
+  the tool.
+- **Launch calendar drafted** in `marketing/` (gitignored): dev.to leads on 4 Aug
+  with the false-positive/mechanism piece, LinkedIn 6 Aug, Medium 11 Aug, dev.to
+  tip 18 Aug, then two more LinkedIn posts. Medium goes second so the canonical
+  stays with the earlier publication.
+- **Killed the "here is my tool" launch post** — that framing has earned USD 1
+  across his two previous own-repo posts. Every scheduled post leads with the
+  problem and mentions plumb at the end.
+- **Killed the "how is this different from `git diff`" post** — the honest answer
+  is two sentences and it is already the README FAQ. Folded into the dev.to piece
+  as one paragraph rather than padded into a defensive comparison.
+
 ## 2026-08-01 — v1.0.0, the build
 
 - **Shipped `plumb check`** — reads the agent's summary, reads `git diff`, and
