@@ -1,0 +1,12 @@
+plumb — 3 files changed, 2 named in the summary
+
+changed but never mentioned  (read these first)
+  · src/config.js modified
+
+quiet cuts  (removed or silenced, whatever the summary says)
+  · src/auth.js:1 error path removed
+    if (!user || !pass) throw new Error('missing credentials');
+  · test/auth.test.js:1 test skipped
+    it.skip('rejects empty credentials', () => {
+
+3 things the summary did not tell you.

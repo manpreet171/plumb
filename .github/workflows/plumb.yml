@@ -1,0 +1,31 @@
+name: plumb
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The tool builds its own git repo in a temp dir, so git needs an identity.
+      - run: git config --global user.email ci@example.com
+      - run: git config --global user.name ci
+
+      - name: the tool works
+        run: node test/plumb.test.mjs
+
+      - name: the CLI runs
+        run: node bin/plumb.mjs version
+
+      - name: no dependencies crept in
+        run: |
+          if node -e "const p=require('./package.json');process.exit(p.dependencies?1:0)"; then
+            echo "still zero dependencies"
+          else
+            echo "a dependency was added — that is the one thing this repo promises not to do"
+            exit 1
+          fi

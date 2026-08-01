@@ -1,0 +1,15 @@
+plumb — 3 files changed, 1 named in the summary
+
+changed but never mentioned  (read these first)
+  · .env.example modified
+  · .github/workflows/ci.yml modified
+
+quiet cuts  (removed or silenced, whatever the summary says)
+  · .github/workflows/ci.yml:5 CI failure silenced
+    continue-on-error: true
+  · src/parse.ts:1 linter or type check silenced
+    // @ts-ignore
+  · src/parse.ts:3 check removed
+    validateShape(data);
+
+5 things the summary did not tell you.
