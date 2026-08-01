@@ -6,6 +6,8 @@
 
 **What it said. What it did.**
 
+Part of [Singh Labs](https://singhlabs.dev/plumb/) — guardrails for AI coding agents.
+
 Created by [Manpreet Singh](https://github.com/manpreet171)
 
 [Product page](https://singhlabs.dev/plumb/) · [Manifesto](docs/manifesto.md) · [The four findings](docs/findings.md) · [Adoption](docs/adoption.md)
