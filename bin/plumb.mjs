@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { basename } from 'node:path';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 // ---------------------------------------------------------------- git
 
@@ -25,11 +25,15 @@ function git(args) {
 
 // Files changed, as [{ status, path }]. base is a ref, or null for the working
 // tree (staged + unstaged, which is what you have right after an agent run).
+//
+// Untracked files count. `git diff` never lists them, and an agent that drops a
+// new .env.local or deploy.sh is doing the exact thing this tool exists to
+// catch — so they are collected separately and merged in.
 function changedFiles(base) {
   const args = base
     ? ['diff', '--name-status', '--find-renames', base]
     : ['diff', '--name-status', '--find-renames', 'HEAD'];
-  return git(args)
+  const tracked = git(args)
     .split('\n')
     .filter(Boolean)
     .map((line) => {
@@ -37,6 +41,16 @@ function changedFiles(base) {
       // Renames are "R100\told\tnew" — report the destination.
       return { status: parts[0][0], path: parts[parts.length - 1] };
     });
+
+  // --exclude-standard honours .gitignore, so build output and node_modules
+  // stay out of the report.
+  const untracked = git(['ls-files', '--others', '--exclude-standard'])
+    .split('\n')
+    .filter(Boolean)
+    .map((path) => ({ status: 'U', path }));
+
+  const seen = new Set(tracked.map((f) => f.path));
+  return tracked.concat(untracked.filter((f) => !seen.has(f.path)));
 }
 
 function unifiedDiff(base) {
@@ -158,7 +172,7 @@ const C = process.stdout.isTTY && !process.env.NO_COLOR
   ? { dim: '\x1b[2m', red: '\x1b[31m', yellow: '\x1b[33m', green: '\x1b[32m', bold: '\x1b[1m', off: '\x1b[0m' }
   : { dim: '', red: '', yellow: '', green: '', bold: '', off: '' };
 
-const STATUS = { A: 'added', M: 'modified', D: 'deleted', R: 'renamed', C: 'copied', T: 'retyped' };
+const STATUS = { A: 'added', M: 'modified', D: 'deleted', R: 'renamed', C: 'copied', T: 'retyped', U: 'new, untracked' };
 
 function report(r) {
   const out = [];
@@ -206,7 +220,11 @@ function check(argv) {
     die('nothing to hold the diff against.\n  Paste the agent\'s summary:  plumb check summary.md\n  Or pipe it:                 pbpaste | plumb check');
   }
 
-  const changed = changedFiles(base);
+  // The summary file is usually written into the repo you are checking. It is
+  // not part of the agent's work, so reporting it every single time would be a
+  // guaranteed false positive.
+  const self = claimPath ? basename(claimPath).toLowerCase() : null;
+  const changed = changedFiles(base).filter((f) => basename(f.path).toLowerCase() !== self);
   if (!changed.length) die('no changes to check — the working tree is clean.');
 
   const names = claimedNames(claim);

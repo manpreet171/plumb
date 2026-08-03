@@ -63,7 +63,20 @@ try {
 
   assert.deepEqual(r.phantom, ['src/ghost.js'], 'a file named in the summary but never touched');
 
+  // The bug that shipped in 1.0.0: `git diff` never lists untracked files, so an
+  // agent that quietly drops a new .env.local got a clean bill of health. This is
+  // the headline feature, so it gets its own regression test.
+  write('.env.local', 'AWS_SECRET=hunter2\n');
+  const leak = plumb('check', 'summary.md', '--json');
+  assert.ok(
+    leak.out.unclaimed.some((f) => f.path === '.env.local'),
+    'a new untracked file the summary never mentioned must be reported',
+  );
+  assert.equal(leak.status, 1, 'an unmentioned untracked file must fail the check');
+  rmSync(join(dir, '.env.local'));
+
   // A summary that tells the whole truth exits 0.
+  rmSync(join(dir, 'summary.md')); // scratch file from the case above, not agent work
   write('config.js', 'export const RETRIES = 3;\n');
   write('auth.js', 'function login(u, p) {\n  if (!u) throw new Error("no user");\n  return check(u, p);\n}\nexport const X = 1;\n');
   write('suite.test.js', "it('rejects blanks', () => { expect(login('')).toThrow(); });\n");

