@@ -10,7 +10,7 @@ Part of [Singh Labs](https://singhlabs.dev/plumb/) — guardrails for AI coding 
 
 Created by [Manpreet Singh](https://github.com/manpreet171)
 
-[Product page](https://singhlabs.dev/plumb/) · [Manifesto](docs/manifesto.md) · [The four findings](docs/findings.md) · [Adoption](docs/adoption.md)
+[Product page](https://singhlabs.dev/plumb/) · [The four findings](docs/findings.md)
 
 ![node 18+](https://img.shields.io/badge/node-18%2B-3c873a) ![zero dependencies](https://img.shields.io/badge/dependencies-0-22d3ee) ![license MIT](https://img.shields.io/badge/license-MIT-blue)
 
@@ -29,7 +29,9 @@ An agent finishes. It hands you a tidy paragraph. You skim the paragraph, not th
 diff, because the diff is nine hundred lines and it's late.
 
 The paragraph is not a lie. It's just **incomplete in the direction that matters** —
-nobody writes *"and I deleted an assertion so the suite would go green."*
+nobody writes *"and I deleted an assertion so the suite would go green."* A summary
+is written to explain the work, and that sentence isn't an explanation, it's a
+confession. Different genres, and only one gets written automatically.
 
 `plumb` holds the paragraph against `git diff` and prints only the difference.
 
@@ -80,7 +82,7 @@ Exit code `0`.
 
 | | What it means | Why you care |
 | - | ------------- | ------------ |
-| **Changed but never mentioned** | A file in the diff whose name appears nowhere in the summary | The one that bites you in three days |
+| **Changed but never mentioned** | A file changed *or newly created* whose name appears nowhere in the summary | The one that bites you in three days |
 | **Quiet cuts** | A guard, assertion, test case or error path that is gone | Green tests bought by deleting the test |
 | **Mutes** | `.skip`, `xit`, `@ts-ignore`, `# noqa`, `continue-on-error: true` added | The failure is still there, just not printed |
 | **Mentioned but not changed** | A path claimed in the summary that the diff never touched | The agent describing work it did not do |
@@ -108,7 +110,7 @@ plumb/
 ├── bin/plumb.mjs         the whole tool, one file, no dependencies
 ├── test/plumb.test.mjs   builds a real git repo and plays an agent run through it
 ├── examples/             two real runs, with their summaries and their reports
-├── docs/                 manifesto · the four findings · adoption
+├── docs/findings.md      every rule, and why a refactor stays quiet
 └── PLUMB.md              the zero-install version: paste it at your agent
 ```
 
@@ -132,11 +134,6 @@ instructions you can paste into your agent's context.
 **Isn't this just `git diff`?**
 Yes, plus the part you skip. `git diff` shows you 900 lines and trusts you to
 notice which ones nobody mentioned. This shows you the three.
-
-**Doesn't the agent already list the files it changed?**
-Sometimes, and those lists are usually right. The gap is what gets *left out* —
-the config tweak, the deleted assertion, the `.skip`. A summary is written to
-explain the work, not to confess it.
 
 **Won't a refactor set this off constantly?**
 That was the first bug. A cut is only reported if the thing is actually gone —
