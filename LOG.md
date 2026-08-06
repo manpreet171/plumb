@@ -5,6 +5,52 @@ Newest first.
 
 ---
 
+## 2026-08-06 — `plumb check --pr`: the same question, aimed at strangers
+
+- **The new verb.** `plumb check --pr 42` reads the description off GitHub with
+  `gh`, fetches the head into a private ref, and holds the description against
+  the real diff. No clone setup, no config. This is the case that actually hurts
+  maintainers right now — a stranger's confident paragraph over a thousand lines
+  — and it was invisible to a tool that only ever looked at your own working tree.
+- **One check exists only here: symbols named in the description that exist
+  nowhere.** Not in the diff, not anywhere in the base branch. The confident
+  `fixes sanitizeUserInput()` where there has never been a `sanitizeUserInput`.
+  This one *cannot* be run against a local summary — you need the whole base
+  tree to say a name is absent from it. That's what makes `--pr` a different
+  tool rather than a flag.
+- **Unclaimed files are demoted to context on a PR, and dropped from the exit
+  code.** A PR description states intent; it is not a file manifest. Failing an
+  honest PR because the author never typed `README.md` is exactly the cry-wolf
+  that gets a checker uninstalled. Caught on the first live run, against a real
+  honest PR that plumb wanted to fail.
+- **Then I ran it against eight real PRs in three real repos, and it found three
+  of my own bugs.** All three were false positives or crashes — the only fatal
+  category for a tool like this:
+  - `merge-base` against the branch tip returns the head itself once a PR is
+    merged, so **every merged PR reported "changes nothing"**. Now uses
+    `baseRefOid`, the commit the PR was actually opened against.
+  - `git grep` exits 1 when it finds nothing — which is the *answer*, not a
+    failure. The `git()` helper treats non-zero as fatal, so the run died on the
+    first genuinely-absent symbol. **The ghost check had never once completed
+    end to end.** The suite could not see it because the test calls `git`
+    directly rather than through the CLI — it tests the logic and not the
+    plumbing, and that gap is worth naming here.
+  - A `github.com` link in a description was parsed as a repo path, and `httpx`
+    — a library named in prose — was reported as an invented symbol. URLs are
+    stripped now, and a ghost has to read like an identifier: a capital, an
+    underscore, a dot, or a call. **`httpx` in a sentence is a comparison, not
+    a claim.**
+- **Shipped as a composite action** (`action.yml`), warn-only by default, so a
+  maintainer adopts it in one line and it blocks nothing until they trust it.
+- **Decision: cut the ghost-finding screenshot from the product page.** I had it
+  written, then could not produce a real `--pr` run that triggered it without
+  opening a PR somewhere to manufacture the evidence. The page describes the
+  check in prose and shows a real run instead (libtmux #735, a `# noqa` added in
+  a file the description never mentions). Every terminal block on the site stays
+  real.
+
+---
+
 ## 2026-08-03 — v1.1.0: the headline feature was broken
 
 - **Untracked files were invisible.** `git diff --name-status HEAD` never lists
