@@ -71,7 +71,9 @@ const TOKEN = new RegExp(`[\\w.\\-/\\\\]+\\.(?:${EXT})\\b`, 'gi');
 
 function claimedNames(text) {
   const found = new Set();
-  for (const raw of text.match(TOKEN) || []) {
+  // A link to a file on github.com is not a claim to have changed it, and the
+  // path inside it is not a path in this repo. Drop URLs before matching.
+  for (const raw of text.replace(/\bhttps?:\/\/\S+/gi, ' ').match(TOKEN) || []) {
     const clean = raw.replace(/\\/g, '/').replace(/^\.\//, '');
     found.add(clean.toLowerCase());
     found.add(basename(clean).toLowerCase());
@@ -230,7 +232,7 @@ function prClaim(number) {
   let json;
   try {
     json = execFileSync('gh', ['pr', 'view', String(number), '--repo', repo,
-      '--json', 'title,body,baseRefName,headRefName,author'],
+      '--json', 'title,body,baseRefName,baseRefOid,headRefName,author'],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (err) {
     const msg = (err.stderr || err.message || '').trim().split('\n')[0];
@@ -239,7 +241,11 @@ function prClaim(number) {
   const pr = JSON.parse(json);
   return {
     text: `${pr.title}\n\n${pr.body || ''}`,
-    base: `origin/${pr.baseRefName}`,
+    // baseRefOid, not the branch tip: once a PR is merged its head is an
+    // ancestor of the branch, so merge-base against today's tip is the head
+    // itself and the diff comes back empty.
+    base: pr.baseRefOid,
+    branch: pr.baseRefName,
     label: `#${number} by ${pr.author?.login || 'unknown'} → ${pr.baseRefName}`,
   };
 }
@@ -306,7 +312,12 @@ function emit(result, argv, extra = []) {
 // that never existed. A human needs hours to disprove one; grep needs a second.
 function ghostSymbols(claim, base, head) {
   const words = claim.match(/`([A-Za-z_][\w.]{3,60})`|\b([a-z][A-Za-z0-9]{4,40})\(\)/g) || [];
-  const named = [...new Set(words.map((w) => w.replace(/[`()]/g, '')).filter(Boolean))];
+  const named = [...new Set(words.map((w) => w.replace(/[`()]/g, '')).filter(Boolean))]
+    // `httpx` in a sentence is a library being compared against, not a symbol
+    // this PR claims to have written. Require something that reads like an
+    // identifier — a capital, an underscore, a dot, or a call — before
+    // accusing anyone of inventing it.
+    .filter((s) => /[A-Z_.]/.test(s) || claim.includes(`${s}()`));
   if (!named.length) return [];
   // Anything added by this PR counts as existing — it is being created here.
   const added = unifiedDiff(base, head)
@@ -316,9 +327,12 @@ function ghostSymbols(claim, base, head) {
   const ghosts = [];
   for (const sym of named) {
     if (added.includes(sym)) continue;
+    // Not git(): grep exits 1 when it finds nothing, which is the answer we
+    // want, not a failure. git() would treat that as fatal and kill the run.
     let hits = '';
     try {
-      hits = git(['grep', '-l', '--fixed-strings', sym, base]) || '';
+      hits = execFileSync('git', ['grep', '-l', '--fixed-strings', sym, base],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     } catch { hits = ''; }
     if (!hits.trim()) ghosts.push(sym);
   }
@@ -332,8 +346,8 @@ function checkPr(argv, number) {
   // against it, so this works on a fresh checkout with no setup.
   const head = `refs/plumb/pr-${number}`;
   git(['fetch', '--quiet', 'origin', `pull/${number}/head:${head}`, '--force']);
-  git(['fetch', '--quiet', 'origin', pr.base.replace(/^origin\//, '')]);
-  const base = git(['merge-base', 'origin/' + pr.base.replace(/^origin\//, ''), head]).trim();
+  git(['fetch', '--quiet', 'origin', pr.branch]);
+  const base = git(['merge-base', pr.base, head]).trim();
   if (!base) die(`cannot find a common ancestor for PR #${number}.`);
 
   const changed = changedFiles(base, head);
