@@ -29,9 +29,9 @@ function git(args) {
 // Untracked files count. `git diff` never lists them, and an agent that drops a
 // new .env.local or deploy.sh is doing the exact thing this tool exists to
 // catch — so they are collected separately and merged in.
-function changedFiles(base) {
+function changedFiles(base, head) {
   const args = base
-    ? ['diff', '--name-status', '--find-renames', base]
+    ? ['diff', '--name-status', '--find-renames', base, ...(head ? [head] : [])]
     : ['diff', '--name-status', '--find-renames', 'HEAD'];
   const tracked = git(args)
     .split('\n')
@@ -41,6 +41,9 @@ function changedFiles(base) {
       // Renames are "R100\told\tnew" — report the destination.
       return { status: parts[0][0], path: parts[parts.length - 1] };
     });
+
+  // A PR has no working tree, so untracked files are meaningless there.
+  if (head) return tracked;
 
   // --exclude-standard honours .gitignore, so build output and node_modules
   // stay out of the report.
@@ -53,8 +56,8 @@ function changedFiles(base) {
   return tracked.concat(untracked.filter((f) => !seen.has(f.path)));
 }
 
-function unifiedDiff(base) {
-  const args = base ? ['diff', '-U0', base] : ['diff', '-U0', 'HEAD'];
+function unifiedDiff(base, head) {
+  const args = base ? ['diff', '-U0', base, ...(head ? [head] : [])] : ['diff', '-U0', 'HEAD'];
   return git(args);
 }
 
@@ -180,7 +183,9 @@ function report(r) {
   out.push('');
 
   if (r.unclaimed.length) {
-    out.push(`${C.red}changed but never mentioned${C.off}  ${C.dim}(read these first)${C.off}`);
+    out.push(r.pr
+      ? `${C.yellow}touched but not described${C.off}  ${C.dim}(context, not a failure — PRs describe intent)${C.off}`
+      : `${C.red}changed but never mentioned${C.off}  ${C.dim}(read these first)${C.off}`);
     for (const f of r.unclaimed) out.push(`  ${C.red}·${C.off} ${f.path} ${C.dim}${STATUS[f.status] || f.status}${C.off}`);
     out.push('');
   }
@@ -198,6 +203,14 @@ function report(r) {
     out.push('');
   }
 
+  if (r.pr) {
+    // On a PR only the hard findings count — see the note in emit().
+    const hard = r.cuts.length + (r.ghosts ? r.ghosts.length : 0);
+    out.push(hard === 0
+      ? `${C.green}nothing here contradicts the description.${C.off}`
+      : `${C.dim}${hard} thing${hard === 1 ? '' : 's'} to read before you merge this.${C.off}`);
+    return out.join('\n');
+  }
   const n = r.unclaimed.length + r.cuts.length + r.phantom.length;
   if (n === 0) out.push(`${C.green}the summary holds.${C.off} ${C.dim}Every change was named, nothing was quietly cut.${C.off}`);
   else out.push(`${C.dim}${n} thing${n === 1 ? '' : 's'} the summary did not tell you.${C.off}`);
@@ -206,7 +219,35 @@ function report(r) {
 
 // ---------------------------------------------------------------- commands
 
+// A pull request is the same shape as an agent's summary: a written claim about
+// a diff. `--pr` fetches the description and the base ref from GitHub so the
+// same checks apply to a contribution nobody in your team wrote.
+function prClaim(number) {
+  const raw = git(['config', '--get', 'remote.origin.url']) || '';
+  const m = raw.match(/github\.com[:/]([^/]+)\/([^/.\s]+)/);
+  if (!m) die('--pr needs a github remote on origin.');
+  const repo = `${m[1]}/${m[2]}`;
+  let json;
+  try {
+    json = execFileSync('gh', ['pr', 'view', String(number), '--repo', repo,
+      '--json', 'title,body,baseRefName,headRefName,author'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    const msg = (err.stderr || err.message || '').trim().split('\n')[0];
+    die(`could not read PR #${number} — ${msg}\n  plumb --pr needs the GitHub CLI: https://cli.github.com`);
+  }
+  const pr = JSON.parse(json);
+  return {
+    text: `${pr.title}\n\n${pr.body || ''}`,
+    base: `origin/${pr.baseRefName}`,
+    label: `#${number} by ${pr.author?.login || 'unknown'} → ${pr.baseRefName}`,
+  };
+}
+
 function check(argv) {
+  const prNumber = flag(argv, '--pr');
+  if (prNumber) return checkPr(argv, prNumber);
+
   const base = flag(argv, '--base');
   const claimPath = flag(argv, '--claim') || argv.find((a) => !a.startsWith('-'));
 
@@ -241,11 +282,92 @@ function check(argv) {
     cuts,
   };
 
-  if (argv.includes('--json')) console.log(JSON.stringify(result, null, 2));
-  else console.log(report(result));
+  emit(result, argv);
+}
 
-  const findings = unclaimed.length + cuts.length + phantom.length;
+function emit(result, argv, extra = []) {
+  if (argv.includes('--json')) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(report(result));
+    for (const line of extra) console.log(line);
+  }
+  // An agent names the files it touched; a human writes "adds X to the docs"
+  // and never types README.md. So on a pull request an unnamed file is context,
+  // not a finding — otherwise this fires on every honest PR ever opened.
+  const findings = result.pr
+    ? result.cuts.length + result.ghosts.length
+    : result.unclaimed.length + result.cuts.length + result.phantom.length;
   process.exit(findings && !argv.includes('--warn-only') ? 1 : 0);
+}
+
+// Symbols a PR description names that exist nowhere in the repo or the diff.
+// This is the curl failure: reports citing functions deleted years ago and APIs
+// that never existed. A human needs hours to disprove one; grep needs a second.
+function ghostSymbols(claim, base, head) {
+  const words = claim.match(/`([A-Za-z_][\w.]{3,60})`|\b([a-z][A-Za-z0-9]{4,40})\(\)/g) || [];
+  const named = [...new Set(words.map((w) => w.replace(/[`()]/g, '')).filter(Boolean))];
+  if (!named.length) return [];
+  // Anything added by this PR counts as existing — it is being created here.
+  const added = unifiedDiff(base, head)
+    .split('\n')
+    .filter((l) => l.startsWith('+'))
+    .join('\n');
+  const ghosts = [];
+  for (const sym of named) {
+    if (added.includes(sym)) continue;
+    let hits = '';
+    try {
+      hits = git(['grep', '-l', '--fixed-strings', sym, base]) || '';
+    } catch { hits = ''; }
+    if (!hits.trim()) ghosts.push(sym);
+  }
+  return ghosts;
+}
+
+function checkPr(argv, number) {
+  const pr = prClaim(number);
+  // A PR's commits are not in a normal clone — they live on a fork or an
+  // unfetched branch. Fetch the head into a private ref, then compare the base
+  // against it, so this works on a fresh checkout with no setup.
+  const head = `refs/plumb/pr-${number}`;
+  git(['fetch', '--quiet', 'origin', `pull/${number}/head:${head}`, '--force']);
+  git(['fetch', '--quiet', 'origin', pr.base.replace(/^origin\//, '')]);
+  const base = git(['merge-base', 'origin/' + pr.base.replace(/^origin\//, ''), head]).trim();
+  if (!base) die(`cannot find a common ancestor for PR #${number}.`);
+
+  const changed = changedFiles(base, head);
+  if (!changed.length) die(`PR ${pr.label} changes nothing against ${base}.`);
+
+  const names = claimedNames(pr.text);
+  const unclaimed = changed.filter((f) => !isClaimed(f.path, names));
+  const changedSet = new Set(changed.flatMap((f) => [f.path.toLowerCase(), basename(f.path).toLowerCase()]));
+  const phantom = [...names].filter((n) => !changedSet.has(n) && n.includes('/'));
+
+  const result = {
+    pr: pr.label,
+    changed,
+    claimedCount: changed.length - unclaimed.length,
+    unclaimed,
+    phantom,
+    cuts: scanDiff(unifiedDiff(base, head)),
+    ghosts: ghostSymbols(pr.text, base, head),
+    disclosed: /assisted-by\s*:|\bllm\b|\bai[- ]assisted\b|claude|copilot|cursor|chatgpt/i.test(pr.text),
+  };
+
+  const extra = [];
+  if (result.ghosts.length) {
+    extra.push('');
+    extra.push(`${C.red}named in the description, found nowhere${C.off}  ${C.dim}(neither in this diff nor in ${base})${C.off}`);
+    for (const g of result.ghosts) extra.push(`  ${C.red}·${C.off} ${g}`);
+  }
+  extra.push('');
+  extra.push(result.disclosed
+    ? `${C.dim}The description mentions AI assistance.${C.off}`
+    : `${C.dim}No AI disclosure in the description — that may be fine, or it may be undisclosed.${C.off}`);
+
+  console.log(`${C.dim}PR ${result.pr}${C.off}`);
+  emit(result, argv, extra);
 }
 
 function flag(argv, name) {
@@ -261,6 +383,7 @@ function die(msg) {
 const USAGE = `plumb ${VERSION} — hold the agent's summary against what it actually changed.
 
   plumb check <summary-file>     compare the summary to the working tree
+  plumb check --pr 42            check a pull request: does the description match the diff?
   plumb check --base main        compare against a branch or commit instead
   cat summary.md | plumb check   read the summary from stdin
 

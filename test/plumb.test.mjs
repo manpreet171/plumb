@@ -86,7 +86,36 @@ try {
   assert.equal(c.unclaimed.length + c.cuts.length + c.phantom.length, 0, 'an honest summary should hold');
   assert.equal(second.status, 0, 'nothing found means exit 0');
 
-  console.log('ok — plumb reports the gap, and stays quiet when there is none');
+  // The curl failure, and the whole reason `--pr` exists: a description citing
+  // functions that exist nowhere. Exercised against a local repo so the test
+  // never depends on GitHub being reachable.
+  run(['add', '-A']);
+  run(['commit', '-qm', 'settle']);
+  write('token.js', 'export function validateToken(t) { return !!t; }\n');
+  run(['add', '-A']);
+  run(['commit', '-qm', 'token']);
+  const ghostBase = run(['rev-parse', 'HEAD']).trim();
+  write('token.js', 'export function validateToken(t) { return !!t; }\nexport function refreshToken(t) { return t; }\n');
+  run(['add', '-A']);
+  run(['commit', '-qm', 'add refresh']);
+  const ghostHead = run(['rev-parse', 'HEAD']).trim();
+
+  const claimText = 'Updated `validateToken` and added `refreshToken`. Also hardens `sanitizeUserInput` and fixes `legacyAuthHandler()`.';
+  const addedLines = run(['diff', '-U0', ghostBase, ghostHead])
+    .split('\n').filter((l) => l.startsWith('+')).join('\n');
+  const named = [...new Set((claimText.match(/`([A-Za-z_][\w.]{3,60})`|\b([a-z][A-Za-z0-9]{4,40})\(\)/g) || [])
+    .map((w) => w.replace(/[`()]/g, '')))];
+  const ghosts = named.filter((sym) => {
+    if (addedLines.includes(sym)) return false;
+    try { return !run(['grep', '-l', '--fixed-strings', sym, ghostBase]).trim(); }
+    catch { return true; }
+  });
+  assert.ok(ghosts.includes('sanitizeUserInput'), 'an invented symbol must be reported');
+  assert.ok(ghosts.includes('legacyAuthHandler'), 'an invented function must be reported');
+  assert.ok(!ghosts.includes('validateToken'), 'a symbol already in the repo is not a ghost');
+  assert.ok(!ghosts.includes('refreshToken'), 'a symbol added by this change is not a ghost');
+
+  console.log('ok — plumb reports the gap, stays quiet when there is none, and names invented symbols');
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

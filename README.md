@@ -97,6 +97,7 @@ they are never in the summary anyway.
 | `plumb check <file>` | Hold that summary against the working tree |
 | `cat s.md \| plumb check` | Same, from stdin |
 | `plumb check --base main` | Compare against a branch or commit instead of `HEAD` |
+| `plumb check --pr 42` | Check a pull request: does the description match the diff, and do the symbols it names exist? |
 | `plumb check --json` | Machine-readable, for your own tooling |
 | `plumb check --warn-only` | Always exit 0 — for a soft rollout |
 | `plumb version` | Print the version |

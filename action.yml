@@ -1,0 +1,34 @@
+name: plumb
+description: >-
+  Check a pull request description against its own diff — invented symbols,
+  quietly removed guards, and undisclosed AI assistance.
+author: Manpreet Singh
+branding:
+  icon: anchor
+  color: gray-dark
+
+inputs:
+  pr:
+    description: PR number. Defaults to the PR that triggered the workflow.
+    required: false
+    default: ${{ github.event.pull_request.number }}
+  warn-only:
+    description: Always exit 0, so findings are reported without blocking the PR.
+    required: false
+    default: 'true'
+  github-token:
+    description: Token for reading the PR description.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check the description against the diff
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        node "${{ github.action_path }}/bin/plumb.mjs" check \
+          --pr "${{ inputs.pr }}" \
+          ${{ inputs.warn-only == 'true' && '--warn-only' || '' }}
