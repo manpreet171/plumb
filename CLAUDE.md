@@ -39,3 +39,11 @@ system, never guess it.
   CI gates on 1, so never repurpose it.
 - `node test/plumb.test.mjs` must pass before anything ships. It builds a real
   git repo and plays a real agent run through it.
+
+## Commits
+
+One short human line. **Never a `Co-Authored-By: Claude` trailer and no AI
+attribution of any kind** — GitHub renders it as a second Contributor on the
+repo front page, beside the author. Commit as `manpreet171
+<singh.manpreet171900@gmail.com>`. Saying "Claude Code" in a body as a technical
+term is fine; the attribution trailer is not.
