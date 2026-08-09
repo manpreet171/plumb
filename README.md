@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="Plumb — what it said, what it did" width="100%">
+<img src="assets/mark.png" alt="A plumb bob hanging dead straight, side-eyeing a wall that very much is not" width="300">
 
 # plumb
 
