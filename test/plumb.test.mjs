@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { ghostSymbols, fetchBase } from '../bin/plumb.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/plumb.mjs', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'plumb-'));
@@ -100,22 +101,57 @@ try {
   run(['commit', '-qm', 'add refresh']);
   const ghostHead = run(['rev-parse', 'HEAD']).trim();
 
-  const claimText = 'Updated `validateToken` and added `refreshToken`. Also hardens `sanitizeUserInput` and fixes `legacyAuthHandler()`.';
-  const addedLines = run(['diff', '-U0', ghostBase, ghostHead])
-    .split('\n').filter((l) => l.startsWith('+')).join('\n');
-  const named = [...new Set((claimText.match(/`([A-Za-z_][\w.]{3,60})`|\b([a-z][A-Za-z0-9]{4,40})\(\)/g) || [])
-    .map((w) => w.replace(/[`()]/g, '')))];
-  const ghosts = named.filter((sym) => {
-    if (addedLines.includes(sym)) return false;
-    try { return !run(['grep', '-l', '--fixed-strings', sym, ghostBase]).trim(); }
-    catch { return true; }
-  });
+  const claimText = 'Updated `validateToken` and added `refreshToken`. Also hardens `sanitizeUserInput`, '
+    + 'fixes `legacyAuthHandler()`, reads `TokenStore.refreshToken` and calls `AuthGate.verifyOrDie`.';
+  process.chdir(dir); // the real check runs git in the current directory
+  const ghosts = ghostSymbols(claimText, ghostBase, ghostHead);
   assert.ok(ghosts.includes('sanitizeUserInput'), 'an invented symbol must be reported');
   assert.ok(ghosts.includes('legacyAuthHandler'), 'an invented function must be reported');
   assert.ok(!ghosts.includes('validateToken'), 'a symbol already in the repo is not a ghost');
   assert.ok(!ghosts.includes('refreshToken'), 'a symbol added by this change is not a ghost');
+  // adaptive-lighting #1616: the PR added `adaptation_holds`, the description
+  // said `AdaptiveLightingManager.adaptation_holds`, and 1.1.0 called it invented.
+  assert.ok(!ghosts.includes('TokenStore.refreshToken'), 'Class.member is real when this change adds the member');
+  assert.ok(ghosts.includes('AuthGate.verifyOrDie'), 'a dotted name with no part anywhere is still reported');
 
-  console.log('ok — plumb reports the gap, stays quiet when there is none, and names invented symbols');
+  // apollographql/rover #3924: a stacked PR whose base branch was deleted after
+  // it merged. 1.1.0 fetched the base by branch name and died on it.
+  const up = mkdtempSync(join(tmpdir(), 'plumb-up-'));
+  const origin = mkdtempSync(join(tmpdir(), 'plumb-origin-'));
+  const chk = mkdtempSync(join(tmpdir(), 'plumb-chk-'));
+  const g = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    g(origin, ['init', '-q', '--bare']);
+    g(up, ['init', '-q']);
+    g(up, ['config', 'user.email', 't@t.t']);
+    g(up, ['config', 'user.name', 't']);
+    g(up, ['checkout', '-q', '-b', 'main']);
+    writeFileSync(join(up, 'a.txt'), 'one\n');
+    g(up, ['add', '-A']);
+    g(up, ['commit', '-qm', 'main']);
+    g(up, ['checkout', '-q', '-b', 'feature-a']);
+    writeFileSync(join(up, 'a.txt'), 'one\ntwo\n');
+    g(up, ['commit', '-qam', 'the base PR']);
+    const stackedBase = g(up, ['rev-parse', 'HEAD']).trim();
+    g(up, ['checkout', '-q', '-b', 'feature-b']);
+    writeFileSync(join(up, 'a.txt'), 'one\ntwo\nthree\n');
+    g(up, ['commit', '-qam', 'the stacked PR']);
+    g(up, ['push', '-q', origin, 'main', 'HEAD:refs/pull/7/head']); // feature-a is never pushed: it was deleted
+
+    g(chk, ['init', '-q']);
+    g(chk, ['remote', 'add', 'origin', origin]);
+    g(chk, ['fetch', '--quiet', 'origin', 'pull/7/head:refs/plumb/pr-7']);
+    assert.throws(() => g(chk, ['fetch', '--quiet', 'origin', 'feature-a']), 'the base branch really is gone');
+    process.chdir(chk);
+    fetchBase({ base: stackedBase, branch: 'feature-a', label: '#7' }); // exits 2 if it can't recover
+    assert.doesNotThrow(() => g(chk, ['cat-file', '-e', `${stackedBase}^{commit}`]), 'the base commit is available');
+  } finally {
+    process.chdir(tmpdir());
+    for (const d of [up, origin, chk]) rmSync(d, { recursive: true, force: true });
+  }
+
+  console.log('ok — plumb reports the gap, stays quiet when there is none, names invented symbols, and survives a deleted base branch');
 } finally {
+  process.chdir(tmpdir());
   rmSync(dir, { recursive: true, force: true });
 }

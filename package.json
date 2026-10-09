@@ -1,6 +1,6 @@
 {
   "name": "plumb-diff",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Hold an AI agent's summary against what it actually changed. Zero dependencies.",
   "bin": {
     "plumb": "bin/plumb.mjs"
